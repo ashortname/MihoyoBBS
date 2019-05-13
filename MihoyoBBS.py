@@ -6,18 +6,18 @@ from bs4 import BeautifulSoup
 
 # 崩坏3 mihoyo 官方论坛 : https://bbs.mihoyo.com/bh3/
 # 可用于提取相关话题
-# 2019.04.28
+# 2019.05.13
 
 """
 ##  article页面模型
 """
 class _OnePage:
     def __init__(self, url):
-        self.url = url
-        self.title = ""
-        self.list_ImgUrls = []
-        self.text = ""
-        self.list_replies = []
+        self.url = url  ##  页面url
+        self.title = "" ##  页面标题
+        self.list_ImgUrls = []  ##  页面图片超链
+        self.text = ""  ##  页面内容
+        self.list_replies = []  ##  第一页评论
 
 """
 ##  工具类封装
