@@ -30,9 +30,11 @@ class MihoyoBBs:
     def __init__(self, localPath):
         self.__parseControl = 10    ## 默认只获取 10 页
         self.__localRootPath = localPath    ## 根目录
-        self.ParseCount = 0
-        self.currentType = "Topic"
-        self.PageSize = 10
+        self.ParseCount = 0     ##  控制爬取次数
+        self.currentType = "Topic"  ##  爬取分类名，本地存储大类文件夹名
+        self.PageSize = 10      ##  一次查询的页面大小
+        self.FailedUrls = []    ##  存储出错的页面
+        self.pointer = ""   ##  指向当前页面页码或者上次查询的最后一条记录
         #   方便的字典，包含每种类型的基础链接
         self.__titleType = {
             "首页": ["", "https://api-static.mihoyo.com/api/community/forum/home/mobileHomeInfo?gids=1&page={0}&num={1}", "hots"],
@@ -81,6 +83,7 @@ class MihoyoBBs:
                 return self.__titleType[getType][1].format(dicArgs['last_id'], dicArgs['type'], dicArgs['pagesize'])
         except Exception as exception:
             print("An error occurred at function [loadMoreUrl]: {0} \n\tat args {1}".format(exception, dicArgs))
+            raise
 
     """
     ##  构造请求地址
@@ -124,8 +127,12 @@ class MihoyoBBs:
                 ## 获取图片链接
                 '''preview'''
                 imgUrls = bs_obj.find_all('img', {'preview': 'imgPreview'})
+                ##  新加的规则 2019-05-13
+                imgUrls += bs_obj.find_all('img', {'preview': 'imgArticle'})
                 for _link in imgUrls:
                     ## 这里的图片路径就是绝对路径
+                    if pageObj.list_ImgUrls.__contains__(_link):
+                        continue
                     pageObj.list_ImgUrls.append(_link.get('large'))
                 ## 获取评论
                 '''不能获取楼中楼的内容，待改进...'''
@@ -142,6 +149,7 @@ class MihoyoBBs:
                 ## all_ArticlePages.append(pageObj.url)
         except Exception as exception:
             print("An error occurred at function [getContent]: {0} at url \'{1}\'".format(exception, pageObj.title))
+            raise
 
     """
     ##  打印页面内容并保存结果
@@ -177,6 +185,7 @@ class MihoyoBBs:
                     print("--- {0}".format(reply))
         except Exception as exception:
             print("An error occurred at function [print_page]: {0} at url : \'{1}\'".format(exception, pageObj.url))
+            raise
 
     """
     ##  下载图片
@@ -198,6 +207,7 @@ class MihoyoBBs:
                     count += 1
         except Exception as exception:
             print("An error occurred at function [downloadImgs]: {0} at url : \'{1}\'".format(exception, pageObj.url))
+            raise
 
     """
     ##  装填页面并爬取
@@ -217,6 +227,7 @@ class MihoyoBBs:
             return 0
         except Exception as exception:
             print("An error occurred at function [searchArticles]: {0} \nat list : \'{1}\'".format(exception, linkList))
+            raise
 
     """
     ##  解析网页，提取话题链接
@@ -266,7 +277,6 @@ class MihoyoBBs:
     ##  基于js链接
     """
     def depParse(self, getType, parseCtl = 10, isGood = False, isHot = False, sort = 'create', GFNType = 1):
-        try:
             ##  设置爬取次数
             self.__parseControl = parseCtl
             ##  计数归零
@@ -278,26 +288,38 @@ class MihoyoBBs:
                 return
             ##  构造referer时用到
             requestUrl = self.__buildReqUrl(self.__titleType[getType][0])
+            ##  用于迭代的变量
             if getType == "首页":
-                Page = 0
+                self.pointer = 0
                 while True:
-                    moreUrl = self.__loadMoreUrl(getType, page=Page, num=self.PageSize)
-                    if self.__depJsonParser(getType, moreUrl, requestUrl, Page, "") is -1:
-                        return
+                    try:
+                        moreUrl = self.__loadMoreUrl(getType, page=self.pointer, num=self.PageSize)
+                        if self.__depJsonParser(getType, moreUrl, requestUrl, self.pointer, "") is -1:
+                            return
+                    except Exception as exception:
+                        self.FailedUrls.append(moreUrl)
+                        print("Url parse failed at 首页，Url: {0}", moreUrl)
+                        continue
             if getType == "甲板":
-                last_id = ""
                 while True:
-                    moreUrl = self.__loadMoreUrl(getType, is_good=isGood, is_hot=isHot, sort=sort, last_id=last_id, pagesize=self.PageSize)
-                    if self.__depJsonParser(getType, moreUrl, requestUrl, 0, last_id) is -1:
-                        return
+                    try:
+                        moreUrl = self.__loadMoreUrl(getType, is_good=isGood, is_hot=isHot, sort=sort, last_id=self.pointer, pagesize=self.PageSize)
+                        if self.__depJsonParser(getType, moreUrl, requestUrl, 0, self.pointer) is -1:
+                            return
+                    except Exception as exception:
+                        self.FailedUrls.append(moreUrl)
+                        print("Url parse failed at 甲板，Url: {0}", moreUrl)
+                        continue
             if getType == "官方":
-                last_id = ""
                 while True:
-                    moreUrl = self.__loadMoreUrl(getType, last_id=last_id, type=GFNType, pagesize=self.PageSize)
-                    if self.__depJsonParser(getType, moreUrl, requestUrl, 0, last_id) is -1:
-                        return
-        except Exception as exception:
-            print("An error occurred at function [depParse]: {0} \nat type : \'{1}\'".format(exception, getType))
+                    try:
+                        moreUrl = self.__loadMoreUrl(getType, last_id=self.pointer, type=GFNType, pagesize=self.PageSize)
+                        if self.__depJsonParser(getType, moreUrl, requestUrl, 0, self.pointer) is -1:
+                            return
+                    except Exception as exception:
+                        self.FailedUrls.append(moreUrl)
+                        print("Url parse failed at 官方，Url: {0}", moreUrl)
+                        continue
 
     """
     ##  进行json数据获取
@@ -313,9 +335,9 @@ class MihoyoBBs:
                     users = resultJson['data'][self.__titleType[getType][2]]
                     if getType == "首页":
                         ##  下一页
-                        Page += 1
+                        self.pointer += 1
                     else:
-                        last_id = users[len(users) - 1]['post_id']
+                        self.pointer =  users[len(users) - 1]['post_id']
                     ##  控制次数
                     if self.__searchArticles(users) is -1:
                         return -1
@@ -324,3 +346,4 @@ class MihoyoBBs:
                     return -1
         except Exception as exception:
             print("An error occurred at function [depJsonParser]: {0} \nat type : \'{1}\'".format(exception, getType))
+            raise
